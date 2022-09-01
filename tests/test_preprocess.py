@@ -10,7 +10,7 @@ from scipy.sparse.csr import csr_matrix
 import dynamo as dyn
 from dynamo.preprocessing import Preprocessor
 from dynamo.preprocessing.preprocessor_utils import (
-    calc_mean_var_dispersion_sparse,
+    calc_mean_var_dispersion_general_mat,
     is_float_integer_arr,
     is_integer_arr,
     is_log1p_transformed_adata,
@@ -113,7 +113,7 @@ def test_recipe_monocle_feature_selection_layer_simple0():
 def test_calc_dispersion_sparse():
     # TODO add randomize tests
     sparse_mat = csr_matrix([[1, 2, 0, 1, 5], [0, 0, 3, 1, 299], [4, 0, 5, 1, 399]])
-    mean, var, dispersion = calc_mean_var_dispersion_sparse(sparse_mat)
+    mean, var, dispersion = calc_mean_var_dispersion_general_mat(sparse_mat)
     expected_mean = np.mean(sparse_mat.toarray(), axis=0)
     expected_var = np.var(sparse_mat.toarray(), axis=0)
     expected_dispersion = expected_var / expected_mean

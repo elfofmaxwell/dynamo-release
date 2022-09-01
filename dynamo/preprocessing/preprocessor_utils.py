@@ -1,4 +1,5 @@
 import warnings
+from functools import singledispatch
 from typing import Callable, List, Tuple, Union
 
 try:
@@ -130,27 +131,28 @@ def clip_by_perc(layer_mat):
     return
 
 
-def calc_mean_var_dispersion_general_mat(
-    data_mat: Union[np.ndarray, csr_matrix], axis: int = 0
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+@singledispatch
+def calc_mean_var_dispersion_general_mat(data_mat, axis=0):
     """calculate mean, variance, and dispersion of a matrix.
 
     Args:
-        data_mat: the matrix to be evaluated, either a ndarray or a scipy sparse matrix.
-        axis: the axis along which calculation is performed. Defaults to 0.
+        data_mat (ndarray | spmatrix): the matrix to be evaluated, either a ndarray or a scipy sparse matrix.
+        axis (int): the axis along which calculation is performed. Defaults to 0.
+
+    Raises:
+        ValueError: the input matrix is neither ndarray nor spmatrix.
 
     Returns:
-        A tuple (mean, var, dispersion) where mean is the mean of the array along the given axis, var is the variance of
-        the array along the given axis, and dispersion is the dispersion of the array along the given axis.
+        Tuple[np.ndarray, np.ndarray, np.ndarray]: A tuple of ndarrays (mean, var, dispersion) where mean is the mean of
+        the array along the given axis, var is the variance of the array along the given axis, and dispersion is the
+        dispersion of the array along the given axis.
     """
 
-    if not issparse(data_mat):
-        return calc_mean_var_dispersion_ndarray(data_mat, axis)
-    else:
-        return calc_mean_var_dispersion_sparse(data_mat, axis)
+    raise ValueError("The type of your input data is neither ndarray nor spmatrix. ")
 
 
-def calc_mean_var_dispersion_ndarray(data_mat: np.ndarray, axis: int = 0) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+@calc_mean_var_dispersion_general_mat.register
+def _(data_mat: np.ndarray, axis: int = 0) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """calculate mean, variance, and dispersion of a non-sparse matrix.
 
     Args:
@@ -173,11 +175,12 @@ def calc_mean_var_dispersion_ndarray(data_mat: np.ndarray, axis: int = 0) -> Tup
     return mean.flatten(), var.flatten(), dispersion.flatten()
 
 
-def calc_mean_var_dispersion_sparse(sparse_mat: csr_matrix, axis: int = 0) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+@calc_mean_var_dispersion_general_mat.register
+def _(data_mat: spmatrix, axis: int = 0) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """calculate mean, variance, and dispersion of a matrix.
 
     Args:
-        sparse_mat: the sparse matrix to be evaluated.
+        data_mat: the sparse matrix to be evaluated.
         axis: the axis along which calculation is performed. Defaults to 0.
 
     Returns:
@@ -185,18 +188,18 @@ def calc_mean_var_dispersion_sparse(sparse_mat: csr_matrix, axis: int = 0) -> Tu
         of the array along the given axis, and dispersion is the dispersion of the array along the given axis.
     """
 
-    sparse_mat = sparse_mat.copy()
-    nan_mask = get_nan_or_inf_data_bool_mask(sparse_mat.data)
-    temp_val = (sparse_mat != 0).sum(axis)
-    sparse_mat.data[nan_mask] = 0
-    nan_count = temp_val - (sparse_mat != 0).sum(axis)
+    data_mat = data_mat.copy()
+    nan_mask = get_nan_or_inf_data_bool_mask(data_mat.data)
+    temp_val = (data_mat != 0).sum(axis)
+    data_mat.data[nan_mask] = 0
+    nan_count = temp_val - (data_mat != 0).sum(axis)
 
-    non_nan_count = sparse_mat.shape[axis] - nan_count
-    mean = (sparse_mat.sum(axis) / sparse_mat.shape[axis]).A1
+    non_nan_count = data_mat.shape[axis] - nan_count
+    mean = (data_mat.sum(axis) / data_mat.shape[axis]).A1
     mean[mean == 0] += 1e-7  # prevent division by zero
 
     # same as numpy var behavior: denominator is N, var=(data_arr-mean)/N
-    var = np.power(sparse_mat - mean, 2).sum(axis) / sparse_mat.shape[axis]
+    var = np.power(data_mat - mean, 2).sum(axis) / data_mat.shape[axis]
     dispersion = var / mean
     return np.array(mean).flatten(), np.array(var).flatten(), np.array(dispersion).flatten()
 
@@ -412,7 +415,7 @@ def select_genes_by_seurat_recipe(
     if max_mean is None:
         max_mean = 3
 
-    mean, variance, dispersion = calc_mean_var_dispersion_sparse(sparse_layer_mat)
+    mean, variance, dispersion = calc_mean_var_dispersion_general_mat(sparse_layer_mat)
     sc_mean, sc_var = seurat_get_mean_var(sparse_layer_mat)
     mean, variance = sc_mean, sc_var
     dispersion = variance / mean
@@ -481,10 +484,10 @@ def select_genes_by_dispersion_svr(
     main_debug("type of layer_mat:" + str(type(layer_mat)))
     if issparse(layer_mat):
         main_info("layer_mat is sparse, dispatch to sparse calc function...")
-        mean, variance, dispersion = calc_mean_var_dispersion_sparse(layer_mat)
+        mean, variance, dispersion = calc_mean_var_dispersion_general_mat(layer_mat)
     else:
         main_info("layer_mat is np, dispatch to sparse calc function...")
-        mean, variance, dispersion = calc_mean_var_dispersion_ndarray(layer_mat)
+        mean, variance, dispersion = calc_mean_var_dispersion_general_mat(layer_mat)
 
     highly_variable_mask, highly_variable_scores = get_highly_variable_mask_by_dispersion_svr(
         mean, variance, n_top_genes
